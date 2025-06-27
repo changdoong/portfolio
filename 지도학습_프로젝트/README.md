@@ -10,7 +10,7 @@
 - 카이제곱 검정을 통한 변수 독립성 분석
 - Accuracy, F1-score를 통한 성능 평가
 
-- ## 📊 사용 모델
+- ##  사용 모델
 
 - Decision Tree
 - Random Forest
