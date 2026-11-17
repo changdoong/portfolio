@@ -123,12 +123,15 @@ class NearMissDetector:
         self.episodes = EpisodeManager("near_miss", "NM", release_frames, cooldown_frames, fps)
 
     # ------------------------------------------------------------------
-    def evaluate(self, tracks) -> List[PairRisk]:
+    def evaluate(self, tracks, exclude_pairs=None) -> List[PairRisk]:
+        """exclude_pairs: 판정에서 뺄 (person_id, vehicle_id) 집합 (예: 운전자-자기 차량). None 이면 전체 평가."""
         persons = [t for t in tracks if t.category == self.person_category]
         vehicles = [t for t in tracks if t.category == self.vehicle_category]
         risks = []
         for p in persons:
             for v in vehicles:
+                if exclude_pairs and (p.track_id, v.track_id) in exclude_pairs:
+                    continue
                 dist, ttc, d_min, closing, sev = compute_pair_risk(
                     p.foot_point, p.velocity * self.fps,
                     v.foot_point, v.velocity * self.fps,
@@ -142,9 +145,9 @@ class NearMissDetector:
                 risks.append(PairRisk(p.track_id, v.track_id, dist, ttc, d_min, closing, sev))
         return risks
 
-    def update(self, tracks, frame_idx: int) -> Tuple[List[PairRisk], List[Dict]]:
+    def update(self, tracks, frame_idx: int, exclude_pairs=None) -> Tuple[List[PairRisk], List[Dict]]:
         """위험 쌍 목록과, 이번 프레임에 새로 기록할 이벤트 목록을 반환."""
-        risks = self.evaluate(tracks)
+        risks = self.evaluate(tracks, exclude_pairs)
         if self.mode == "legacy":
             return risks, self._legacy_events(risks, frame_idx)
 

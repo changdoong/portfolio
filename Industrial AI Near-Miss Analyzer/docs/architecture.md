@@ -31,6 +31,7 @@ flowchart LR
 | Risk | `src/risk/zone.py` | 다각형 위험구역, 침입 에피소드 |
 | | `src/risk/near_miss.py` | 하단 중앙점 픽셀 거리 → warning/danger, (실험) 픽셀 TTC |
 | | `src/risk/episode.py` | 이벤트 에피소드화: 유지시간(release)·쿨다운 |
+| Analysis | `src/risk/track_analysis.py`, `src/tracking/id_merger.py`, `src/risk/object_filter.py`, `src/risk/role_classifier.py` | ID 병합 / 정지 물체 필터 / 운전자 구분 (기본 비활성) |
 | Pipeline | `src/pipeline.py` | 오케스트레이션, Inference/Pipeline 시간 측정, 시각화·저장 |
 | Utils | `src/utils/metrics.py` | `LatencyStats`, `EventLogger`, 이벤트 P/R/F1 |
 
@@ -70,6 +71,13 @@ ultralytics 8.4 에서 `half` 인자가 deprecated 되어 내부적으로 `quant
 
 ### 7. 설정 호환성
 구 설정 형식(`tracking` 에 type 없음, `near_miss.distance_px`)은 이전 동작(IoUTracker, TTC+쿨다운)을 유지한다.
+
+### 8. 추적 후처리 (Day 3, 기본 비활성)
+`tracker.update()` → `TrackAnalyzer.process()` → 위험 판정 순서로 실행된다 (`src/risk/track_analysis.py`).
+1. **ID 병합** (`src/tracking/id_merger.py`): 새 raw ID → 직전에 사라진 같은 카테고리 트랙의 `canonical_track_id`. 원본 `track_id` 는 보존하고 `tracks.csv` 에 두 ID 를 함께 기록한다.
+2. **정지 물체 필터** (`src/risk/object_filter.py`): 이동 이력이 있으면 정차해도 보호하고, 큰 박스도 보호한다. 이동 이력이 없으면서 무시 구역 안에 있거나 오래 정지한 vehicle 만 근접 판정에서 제외한다.
+3. **운전자 구분** (`src/risk/role_classifier.py`): IoA·운전석 위치·순변위 동시 이동을 모두 만족할 때만 driver 로 판정하고, `(person, 자기 차량)` 쌍을 `NearMissDetector.update(exclude_pairs=...)` 에서 제외한다.
+판정 근거는 `merge_log.csv` / `static_log.csv` / `role_log.csv` 에 남는다. ByteTrack 설정은 변경하지 않는다.
 
 ## 한계 및 개선 방향
 - **원근 왜곡**: 바닥 4점 호모그래피 → 미터 단위 거리·TTC

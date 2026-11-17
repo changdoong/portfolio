@@ -7,9 +7,18 @@
 성능 측정
   Inference FPS : 모델 forward 시간만 (ultralytics result.speed["inference"], ms)
   Pipeline FPS  : source.read() 시작 ~ 검출·추적·위험분석·시각화·저장/화면출력 종료 (wall-clock)
+
+선택 기능 (설정이 없으면 비활성화 → 기존 동작과 동일)
+  output.track_log   : 프레임별 확정 트랙 CSV (frame, track_id, category, class_name, score, bbox, 하단 중앙)
+  output.frame_log   : 프레임별 검출/트랙 수 + 구간 시간 CSV
+  perf.stage_timing  : 구간별 시간 통계(read / detector / track_risk / draw / encode / display)를 perf.json 에 추가
+  meta               : domain(real_cctv | synthetic) / dataset / clip 을 perf.json conditions 에 기록
+  analysis           : ID 병합(canonical_track_id) / 정지 물체 필터 / 운전자 구분 (src/risk/track_analysis.py)
+                       output.merge_log / static_log / role_log 로 판정 근거 CSV 기록
 """
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
@@ -20,12 +29,38 @@ import cv2
 import numpy as np
 
 from src.risk.near_miss import NearMissDetector, PairRisk
+from src.risk.track_analysis import TrackAnalyzer
 from src.risk.zone import Zone, ZoneMonitor
 from src.tracking.tracker import Track, build_tracker
 from src.utils.metrics import EventLogger, FPSMeter, LatencyStats
 from src.video.video_source import create_source
 
 logger = logging.getLogger(__name__)
+
+def _r(v: Optional[float], nd: int = 3):
+    return None if v is None else round(float(v), nd)
+
+
+class _CsvLog:
+    """경로가 주어졌을 때만 동작하는 CSV 기록기 (None 이면 아무것도 하지 않음)."""
+
+    def __init__(self, path: Optional[str], header: List[str]):
+        self.enabled = bool(path)
+        self._f = self._w = None
+        if self.enabled:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            self._f = open(path, "w", newline="", encoding="utf-8")
+            self._w = csv.writer(self._f)
+            self._w.writerow(header)
+
+    def write(self, row) -> None:
+        self._w.writerow(row)
+
+    def close(self) -> None:
+        if self._f is not None:
+            self._f.close()
+            self._f = None
+
 
 CATEGORY_COLORS = {"person": (80, 220, 80), "vehicle": (255, 160, 40)}
 SEVERITY_COLORS = {"danger": (0, 0, 255), "warning": (0, 200, 255)}
@@ -63,6 +98,7 @@ class NearMissPipeline:
         )
         self.fps_meter = FPSMeter()
         self.perf: Dict = {}
+        self.analyzer = TrackAnalyzer.from_config(cfg.get("analysis"))   # 설정 없으면 None (기존 동작)
         self._show_ttc = False   # TTC 가 판정에 쓰일 때만 화면에 표시
 
     # ------------------------------------------------------------------
@@ -85,6 +121,18 @@ class NearMissPipeline:
             self.detector.reset_tracking()
 
         stats = {k: LatencyStats(warmup) for k in ("pipeline", "inference", "preprocess", "postprocess")}
+        stage_timing = bool(self.cfg.get("perf", {}).get("stage_timing", False))
+        stage_keys = ("read", "detector", "track_risk", "draw", "encode", "display")
+        stage_stats = {k: LatencyStats(warmup) for k in stage_keys} if stage_timing else None
+        track_cols = ["frame", "track_id", "category", "class_name", "score", "x1", "y1", "x2", "y2", "foot_x", "foot_y"]
+        if self.analyzer:
+            track_cols += ["canonical_track_id", "vehicle_status", "person_role"]
+        track_log = _CsvLog(ocfg.get("track_log"), track_cols)
+        frame_log = _CsvLog(ocfg.get("frame_log"), ["frame", "det_person", "det_vehicle", "track_person",
+                                                      "track_vehicle", "untracked", "inference_ms",
+                                                      "read_ms", "detector_ms", "track_risk_ms", "draw_ms",
+                                                      "encode_ms", "display_ms", "pipeline_ms"])
+        names = getattr(getattr(self.detector, "model", None), "names", None) or {}
         writer = None
         frame_idx = 0
         frame_size = None
@@ -98,21 +146,29 @@ class NearMissPipeline:
                 if frame is None:
                     break
                 frame_size = frame.shape[1], frame.shape[0]
+                t_read = time.perf_counter()
 
                 detections = self._infer(frame)
+                t_det = time.perf_counter()
                 speed = getattr(self.detector, "last_speed", None) or {}
                 for k in ("inference", "preprocess", "postprocess"):
                     stats[k].add(speed.get(k))
-                if getattr(self.detector, "last_untracked", 0):
+                untracked = getattr(self.detector, "last_untracked", 0)
+                if untracked:
                     untracked_frames += 1
 
                 tracks = self.tracker.update(detections)
-                zone_events = self.zone_monitor.update(tracks, frame_idx)
-                risks, nm_events = near_miss.update(tracks, frame_idx)
+                views, risk_tracks, exclude = tracks, tracks, None
+                if self.analyzer:
+                    views, risk_tracks, exclude = self.analyzer.process(tracks, frame_idx, frame.shape[0])
+                zone_events = self.zone_monitor.update(views, frame_idx)
+                risks, nm_events = near_miss.update(risk_tracks, frame_idx, exclude_pairs=exclude)
                 self._log(event_logger, zone_events + nm_events)
+                t_risk = time.perf_counter()
 
                 self.fps_meter.tick()
-                vis = self.draw(frame, tracks, risks, speed.get("inference"))
+                vis = self.draw(frame, views, risks, speed.get("inference"))
+                t_draw = time.perf_counter()
 
                 if ocfg.get("save_video"):
                     if writer is None:
@@ -122,13 +178,42 @@ class NearMissPipeline:
                         if not writer.isOpened():
                             raise IOError(f"VideoWriter 를 열 수 없습니다: {ocfg['video_path']}")
                     writer.write(vis)
+                t_enc = time.perf_counter()
 
                 stop = False
                 if ocfg.get("show_window"):
                     cv2.imshow("Near-Miss Analyzer", vis)
                     stop = (cv2.waitKey(1) & 0xFF) in (ord("q"), 27)
+                t_end = time.perf_counter()
 
-                stats["pipeline"].add((time.perf_counter() - t0) * 1000.0)
+                pipeline_ms = (t_end - t0) * 1000.0
+                stats["pipeline"].add(pipeline_ms)
+                stage_ms = dict(zip(stage_keys, ((b - a) * 1000.0 for a, b in
+                                                 ((t0, t_read), (t_read, t_det), (t_det, t_risk),
+                                                  (t_risk, t_draw), (t_draw, t_enc), (t_enc, t_end)))))
+                if stage_stats is not None:
+                    for k, v in stage_ms.items():
+                        stage_stats[k].add(v)
+                if track_log.enabled:
+                    cls_of = {d.track_id: d.class_id for d in detections if d.track_id is not None}
+                    for t in views:
+                        raw = getattr(t, "raw_track_id", t.track_id)
+                        cid = cls_of.get(raw)
+                        fx, fy = t.foot_point
+                        row = [frame_idx, raw, t.category, names.get(cid, "") if cid is not None else "",
+                               round(t.score, 3), *(round(float(v), 1) for v in t.bbox),
+                               round(float(fx), 1), round(float(fy), 1)]
+                        if self.analyzer:
+                            row += [t.track_id, t.vehicle_status or "", t.person_role or ""]
+                        track_log.write(row)
+                if frame_log.enabled:
+                    frame_log.write([frame_idx,
+                                     sum(d.category == "person" for d in detections),
+                                     sum(d.category == "vehicle" for d in detections),
+                                     sum(t.category == "person" for t in tracks),
+                                     sum(t.category == "vehicle" for t in tracks),
+                                     untracked, _r(speed.get("inference")),
+                                     *(_r(stage_ms[k]) for k in stage_keys), _r(pipeline_ms)])
                 frame_idx += 1
                 if stop:
                     break
@@ -138,6 +223,8 @@ class NearMissPipeline:
         finally:
             self.source.release()
             event_logger.close()
+            track_log.close()
+            frame_log.close()
             if writer is not None:
                 writer.release()
             if ocfg.get("show_window"):
@@ -145,6 +232,13 @@ class NearMissPipeline:
 
         total_sec = time.perf_counter() - t_start
         self.perf = self._perf_report(stats, frame_idx, total_sec, frame_size, untracked_frames)
+        if stage_stats is not None:
+            self.perf["stage_ms"] = {k: s.summary() for k, s in stage_stats.items()}
+        if self.analyzer:
+            self.perf["analysis"] = self.analyzer.summary()
+            self._write_analysis_logs(ocfg)
+        if self.cfg.get("meta"):
+            self.perf["conditions"].update({k: self.cfg["meta"].get(k) for k in ("domain", "dataset", "clip")})
         perf_path = ocfg.get("perf_path") or os.path.join(os.path.dirname(ocfg["event_log"]) or ".", "perf.json")
         with open(perf_path, "w", encoding="utf-8") as f:
             json.dump(self.perf, f, ensure_ascii=False, indent=2)
@@ -154,6 +248,21 @@ class NearMissPipeline:
         logger.info("Inference: %s", self.perf["inference_ms"])
         logger.info("Pipeline : %s", self.perf["pipeline_ms"])
         return summary
+
+    def _write_analysis_logs(self, ocfg: Dict) -> None:
+        a = self.analyzer
+        for key, rows in (("merge_log", a.merger.merges if a.merger else None),
+                          ("static_log", a.static.log if a.static else None),
+                          ("role_log", a.role.log if a.role else None)):
+            path = ocfg.get(key)
+            if not path or rows is None:
+                continue
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                fields = list(rows[0].keys()) if rows else ["frame"]
+                w = csv.DictWriter(f, fieldnames=fields)
+                w.writeheader()
+                w.writerows(rows)
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -196,10 +305,18 @@ class NearMissPipeline:
 
         for t in tracks:
             color = CATEGORY_COLORS.get(t.category, (200, 200, 200))
+            label = f"{t.category} #{t.track_id}"
+            raw = getattr(t, "raw_track_id", t.track_id)
+            if raw != t.track_id:
+                label += f" (raw {raw})"
+            status, role = getattr(t, "vehicle_status", None), getattr(t, "person_role", None)
+            if status in ("static", "ignored_zone"):
+                color, label = (150, 150, 150), label + f" [{status}]"
+            if role == "driver":
+                color, label = (150, 150, 150), label + " [driver]"
             x1, y1, x2, y2 = t.bbox.astype(int)
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(vis, f"{t.category} #{t.track_id}", (x1, y1 - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(vis, label, (x1, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             pts = np.array(t.history, dtype=np.int32)
             if len(pts) > 1:
                 cv2.polylines(vis, [pts.reshape(-1, 1, 2)], False, color, 1)
