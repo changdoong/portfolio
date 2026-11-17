@@ -1,0 +1,35 @@
+# ------------------------------------------------------------
+# 2일차 대표 테스트 영상 (실제 CCTV, Mendeley "Video Dataset for Safe and Unsafe Behaviours")
+# scripts/run_batch.py 가 configs/config.yaml 위에 아래 overrides 를 덮어써 실행한다.
+# 영상 파일은 Git 에 포함되지 않는다 (다운로드 방법: data/README.md).
+# ------------------------------------------------------------
+
+meta:
+  domain: "real_cctv"                      # real_cctv | synthetic
+  dataset: "mendeley_safe_unsafe (DOI 10.17632/xjmtb22pff.1, CC BY 4.0)"
+
+videos:
+  - id: "7_tr21"
+    path: "data/raw/mendeley_safe_unsafe/train/7_safe_carrying/7_tr21.mp4"
+  - id: "3_tr6"
+    path: "data/raw/mendeley_safe_unsafe/train/3_carrying_overload_with_forklift/3_tr6.mp4"
+  - id: "3_tr2"
+    path: "data/raw/mendeley_safe_unsafe/train/3_carrying_overload_with_forklift/3_tr2.mp4"
+  - id: "3_tr19"
+    path: "data/raw/mendeley_safe_unsafe/train/3_carrying_overload_with_forklift/3_tr19.mp4"
+  - id: "7_te2"
+    path: "data/raw/mendeley_safe_unsafe/test/7_safe_carrying/7_te2.mp4"
+
+# 실행 조건 조합 (precision x save_video) → 영상당 4회
+conditions:
+  precisions: ["fp16", "fp32"]
+  save_video: [false, true]
+
+overrides:
+  risk:
+    zones: []          # 이 공장 화면에 맞춘 위험구역 보정 전이므로 비활성화
+  perf:
+    warmup_frames: 10  # 각 실행의 처음 10프레임은 FPS 통계에서 제외
+    stage_timing: true
+  output:
+    show_window: false

@@ -1,0 +1,11 @@
+# ByteTrack 설정 (ultralytics 8.4.215 기본값 기준)
+# config.yaml 의 tracking.tracker_config 로 지정되어 model.track(tracker=...) 에 전달된다.
+# 출처: ultralytics/cfg/trackers/bytetrack.yaml (AGPL-3.0)
+
+tracker_type: bytetrack
+track_high_thresh: 0.25   # 1차 매칭에 사용하는 검출 점수 하한
+track_low_thresh: 0.1     # 2차(저점수) 매칭 하한 - 가림 상황에서 트랙 유지에 도움
+new_track_thresh: 0.25    # 매칭 안 된 검출이 새 트랙이 되기 위한 최소 점수
+track_buffer: 30          # 잃어버린 트랙을 유지하는 프레임 수 (가림 복구 vs ID 오매칭)
+match_thresh: 0.8         # 매칭 비용 임계값
+fuse_score: True          # 검출 점수를 IoU 매칭 비용에 반영

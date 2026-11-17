@@ -1,0 +1,9 @@
+# ------------------------------------------------------------
+# PyTorch CUDA 12.8 빌드 (반드시 requirements.txt 보다 먼저 설치)
+#   .\.venv\Scripts\python.exe -m pip install -r requirements-torch-cu128.txt
+#
+# 검증 환경: Windows 11 / Python 3.11.9 / RTX 3060 Ti / NVIDIA driver 610.88
+# ------------------------------------------------------------
+--index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0
+torchvision==0.26.0

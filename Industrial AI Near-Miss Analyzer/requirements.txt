@@ -1,0 +1,29 @@
+# ------------------------------------------------------------
+# 일반 라이브러리 (torch 는 여기 넣지 않는다)
+#
+# 설치 순서
+#   1) pip install -r requirements-torch-cu128.txt   ← CUDA PyTorch 먼저
+#   2) pip install -r requirements.txt               ← 이 파일
+#   3) python scripts/check_env.py                    ← CUDA 빌드 유지 확인
+#
+# ultralytics 는 torch 에 의존한다. torch 가 없는 상태에서 이 파일을 먼저 설치하면
+# PyPI 의 CPU 버전 torch 가 설치될 수 있으므로 순서를 지킨다.
+# `pip install -U -r requirements.txt` (일괄 업그레이드) 는 사용하지 않는다.
+#
+# 아래 버전은 2026-11-17 Python 3.11.9 가상환경에서 설치·테스트한 버전이다.
+# ------------------------------------------------------------
+ultralytics==8.4.215
+opencv-python==5.0.0.93
+numpy==2.4.6
+pyyaml==6.0.3
+lap==0.5.14
+
+# 리소스 모니터링 (src/utils/resource_monitor.py) - ultralytics 설치 시 함께 설치되는 버전을 명시
+psutil==7.2.2
+nvidia-ml-py==13.615.71
+
+# 분석 / 테스트
+pytest==9.2.0
+pandas==3.1.1
+matplotlib==3.11.2
+ipykernel==7.4.0

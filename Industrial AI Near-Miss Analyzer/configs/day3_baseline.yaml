@@ -1,0 +1,31 @@
+# Day 3 비교 기준선: 운전자 오검출 관찰 영상 6개를 분석 기능 없이 실행 (Day 2 와 같은 조건)
+#   python scripts/run_batch.py --videos configs/day3_baseline.yaml --out outputs/day3/baseline
+meta:
+  domain: real_cctv
+  dataset: mendeley_safe_unsafe (DOI 10.17632/xjmtb22pff.1, CC BY 4.0)
+videos:
+- id: 7_te6
+  path: data/raw/mendeley_safe_unsafe/test/7_safe_carrying/7_te6.mp4
+- id: 7_te7
+  path: data/raw/mendeley_safe_unsafe/test/7_safe_carrying/7_te7.mp4
+- id: 7_tr3
+  path: data/raw/mendeley_safe_unsafe/train/7_safe_carrying/7_tr3.mp4
+- id: 7_tr13
+  path: data/raw/mendeley_safe_unsafe/train/7_safe_carrying/7_tr13.mp4
+- id: 7_tr15
+  path: data/raw/mendeley_safe_unsafe/train/7_safe_carrying/7_tr15.mp4
+- id: 3_tr36
+  path: data/raw/mendeley_safe_unsafe/train/3_carrying_overload_with_forklift/3_tr36.mp4
+conditions:
+  precisions:
+  - fp16
+  save_video:
+  - true
+overrides:
+  risk:
+    zones: []
+  perf:
+    warmup_frames: 10
+    stage_timing: true
+  output:
+    show_window: false
