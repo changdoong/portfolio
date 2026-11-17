@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# 대용량 데이터 / 가중치 / 결과물 (README 만 커밋)
+data/*
+!data/README.md
+models/*
+!models/README.md
+*.pt
+*.onnx
+*.engine
+outputs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
