@@ -295,15 +295,21 @@ Optuna의 탐색 과정에서는 학습 데이터 내부의 교차 검증 점수
 
 **최적화 결과**
 
-- 최적 교차 검증 F1-score: [실제 `study.best_value` 입력]
-- 최적 하이퍼파라미터: [실제 `study.best_params` 입력]
+- 최적 교차 검증 F1-score: 0.5202174840876617
+- 최적 하이퍼파라미터: 
+n_estimators: 155
+max_depth: 11
+min_samples_split: 13
+min_samples_leaf: 4
+max_features: sqrt
+class_weight: balanced
 
 ### 6.5 모델 성능 비교
 
 | 모델 | Accuracy | Precision | Recall | F1-score | ROC-AUC |
 |---|---:|---:|---:|---:|---:|
 | Logistic Regression | 0.8810 | 0.7143 | 0.4255 | 0.5333 | 0.8842 |
-| Optuna Random Forest | [입력] | [입력] | [입력] | [입력] | [입력] |
+| Optuna Random Forest | 0.8537 | 0.5476 | 0.4894 | 0.5169 | 0.8093 |
 
 **모델 비교 및 해석**
 
