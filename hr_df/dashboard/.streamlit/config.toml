@@ -1,0 +1,30 @@
+# 색을 바꿀 때는 components/theme.py와 함께 바꾼다. (테스트로 일치 여부 검사)
+
+[server]
+# 인사 데이터가 같은 네트워크에 노출되지 않도록 이 PC에서만 접속한다.
+address = "127.0.0.1"
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+# 처리하지 못한 예외의 경로와 소스 코드를 화면에 노출하지 않는다.
+showErrorDetails = "type"
+
+[theme]
+base = "light"
+primaryColor = "#0B1F3A"
+backgroundColor = "#F4F7FB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#142033"
+borderColor = "#DCE4EE"
+font = "'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif"
+
+[theme.sidebar]
+primaryColor = "#FFFFFF"
+backgroundColor = "#0B1F3A"
+secondaryBackgroundColor = "#17335A"
+textColor = "#FFFFFF"
+borderColor = "#17335A"

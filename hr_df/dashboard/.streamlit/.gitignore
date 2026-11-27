@@ -1,0 +1,2 @@
+# 루트 .gitignore의 규칙은 이 폴더에 적용되지 않으므로 별도로 제외한다.
+secrets.toml

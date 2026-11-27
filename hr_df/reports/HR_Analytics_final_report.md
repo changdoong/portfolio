@@ -4,6 +4,10 @@
 > **분석 데이터:** IBM HR Analytics Employee Attrition & Performance  
 > **분석 도구:** Python, Pandas, NumPy, Matplotlib, Seaborn, Scikit-learn, Optuna, SHAP  
 > **분석 대상:** 직원 1,470명, 원본 변수 35개
+>
+> **데이터 출처·라이선스:** IBM 데이터 과학자가 만든 가상 데이터로, 배포처인 [IBM/employee-attrition-aif360](https://github.com/IBM/employee-attrition-aif360)과 [Kaggle](https://www.kaggle.com/datasets/pavansubhasht/ibm-hr-analytics-attrition-dataset)에 [Open Database License(ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/)(데이터베이스)과 [Database Contents License(DbCL) 1.0](https://opendatacommons.org/licenses/dbcl/1-0/)(내용)으로 표기되어 있다. 이 보고서의 표와 그림은 이 데이터에서 만든 결과물이다. 원본 CSV는 ODbL 1.0·DbCL 1.0으로, 전처리 CSV는 원본의 파생 데이터베이스로 보아 ODbL 1.0으로 이 저장소에서 공개한다(전처리 방법: `notebooks/02_data_preprocessing.ipynb`, `dashboard/core/preprocessing.py`). IBM 저장소는 데이터 출처를 Kaggle로 밝히며, IBM이 처음 배포한 곳의 이용 조건은 확인하지 못했다. 학습 모델 파일은 라이선스상 성격이 확정되지 않아 저장소에 포함하지 않는다(이전 커밋에는 남아 있다). 이 보고서의 코드 부분에는 MIT License가 적용되지만, 데이터에서 만든 표·그림·수치에는 MIT가 적용되지 않는다.
+>
+> Contains information from the [IBM HR Analytics Employee Attrition & Performance](https://www.kaggle.com/datasets/pavansubhasht/ibm-hr-analytics-attrition-dataset) dataset, which is made available here under the [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/).
 
 ---
 
@@ -245,6 +249,124 @@ EDA에서 확인한 주요 패턴은 다음과 같다.
 
 이 결과는 집단 간 차이와 변수 간 연관성을 보여주는 탐색적 분석이다. 다른 변수의 영향을 통제한 결과나 인과관계를 의미하지는 않는다.
 
+### 4.8 SQL 기반 집계 재현과 교차 검증 (05번)
+
+#### 분석 목적과 환경
+
+4.1~4.6의 pandas 집계를 SQL로 다시 계산해 결과가 같은지 교차 검증했다. 기존 분석에 없던 두 집계도 SQL로 추가했다. 하나는 현 직무 근속연수 구간별 이직률이고, 다른 하나는 직무 × 초과근무 교차 이직률이다.
+
+- **SQL 엔진:** SQLite 3.45.3. Python 표준 라이브러리 `sqlite3`를 사용하므로 추가 패키지가 없다.
+- **데이터베이스:** 메모리 데이터베이스(`:memory:`)를 만들어 쓰고 분석 후 닫는다.
+- **입력:** 원본 `data/raw/hr.csv`(1,470행, 35열)를 그대로 `hr` 테이블로 적재했다. 원본 파일은 읽기만 했다.
+- **파일:**
+  - 쿼리: `notebooks/05_sql_analysis.sql`
+  - 실행과 해석: `notebooks/05_sql_analysis.ipynb`. 이 Notebook은 SQL 파일을 읽어 실행하며, 쿼리를 Notebook 안에 다시 쓰지 않았다.
+- **구간 정의:**
+  - 연령대와 근속 구간은 03·02번 Notebook과 같다.
+  - `YearsInCurrentRole`은 기존 구간 정의가 없어 근속 구간과 같은 경계(0~1, 2~3, 4~5, 6~10, 10년 초과)를 적용했다.
+
+#### 주요 SQL 쿼리
+
+| 쿼리 | 집계 내용 |
+|---|---|
+| Q1 (`q1a`~`q1e`) | 행 수, 컬럼 목록, `EmployeeNumber` 중복, 주요 9개 컬럼 결측치, `Attrition` 범주별 건수 |
+| Q2 | 전체 직원·이직·재직 수와 이직률 |
+| Q3 | 부서별 이직률과 전체 평균 대비 차이(%p) |
+| Q4 | 성별 이직률 |
+| Q5 | 직무별 이직률(30명 미만 표시) |
+| Q6 (`q6a`, `q6b`) | 초과근무 여부별 이직률, 두 집단의 차이와 비율 |
+| Q7 | 연령대별 이직률 |
+| Q8 (`q8a`~`q8c`) | 회사 근속·현 직무 근속 구간별 이직률, 이직 여부별 평균 근속 |
+| Q9 | 직무 × 초과근무 교차 이직률 |
+
+모든 이직률은 분자(이직자 수)와 분모(직원 수)를 함께 출력한다. 분모가 0이면 오류 대신 `NULL`이 되도록 계산했다.
+
+```sql
+ROUND(100.0 * SUM(Attrition = 'Yes') / NULLIF(COUNT(*), 0), 2) AS attrition_rate
+```
+
+#### 데이터 점검 결과
+
+- 행 1,470개, 컬럼 35개다.
+- `EmployeeNumber` 중복은 0건이다.
+- 주요 컬럼(`EmployeeNumber`, `Age`, `Attrition`, `Department`, `Gender`, `JobRole`, `OverTime`, `YearsAtCompany`, `YearsInCurrentRole`)의 결측치와 빈 문자열은 0건이다.
+- `Attrition`은 `No` 1,233건, `Yes` 237건이다.
+
+#### pandas 분석과 비교
+
+| 비교 항목 | SQL 결과 | pandas·보고서 결과 | 일치 |
+|---|---|---|---|
+| 전체 직원 수, 이직자 수, 이직률 | 1,470명, 237명, 16.12% | 4.1 표 | 일치 |
+| 부서별 이직률(3개) | Sales 20.63%, Human Resources 19.05%, Research & Development 13.84% | 4.3 표 | 일치 |
+| 성별 이직률(2개) | 남성 17.01%, 여성 14.80% | 4.2 표 | 일치 |
+| 직무별 이직률(9개) | Sales Representative 39.76% ~ Research Director 2.50% | 4.3 표 | 일치 |
+| 초과근무 여부별 이직률(2개) | Yes 30.53%, No 10.44%(차이 20.09%p, 2.93배) | 4.5 표 | 일치 |
+| 연령대별 이직률(5개) | 25세 미만 39.18% ~ 35~44세 10.10% | 4.2 표 | 일치 |
+| 근속 구간별 이직률(5개) | 0~1년 34.88% ~ 10년 초과 8.13% | 4.4 표 | 일치 |
+| 이직 여부별 평균 근속 | `YearsAtCompany` 7.37/5.13년, `YearsInCurrentRole` 4.48/2.90년 | 4.6 표 | 일치 |
+
+- 같은 원본 데이터와 같은 구간 정의를 썼으므로 직원 수, 이직자 수, 이직률(소수점 둘째 자리)이 모두 같았다. 차이가 나는 항목은 없다.
+- 05번 Notebook에서는 pandas로 다시 계산한 27개 집단과 대조했다.
+- 대시보드 테스트(`dashboard/tests/test_sql_analysis.py`)는 대시보드의 pandas 집계(`core.analytics`)와 대조한다.
+- 부서별 전체 평균 대비 차이는 Sales +4.51%p, Human Resources +2.93%p, Research & Development −2.28%p다.
+
+#### SQL로 추가한 집계
+
+현 직무 근속연수(`YearsInCurrentRole`) 구간별 이직률이다.
+
+| 현 직무 근속 | 직원 수 | 이직자 수 | 이직률 | 같은 구간의 회사 근속 이직률(4.4) |
+|---|---:|---:|---:|---:|
+| 0~1년 | 301 | 84 | 27.91% | 34.88% |
+| 2~3년 | 507 | 84 | 16.57% | 18.43% |
+| 4~5년 | 140 | 16 | 11.43% | 13.07% |
+| 6~10년 | 444 | 48 | 10.81% | 12.28% |
+| 10년 초과 | 78 | 5 | 6.41% | 8.13% |
+
+현 직무 근속이 짧은 집단일수록 이직률이 높았다. 회사 근속(4.4)과 같은 방향의 패턴이다.
+
+직무 × 초과근무 교차 이직률이다.
+
+| 직무 | 초과근무 | 직원 수 | 이직자 수 | 이직률 | 비고 |
+|---|---|---:|---:|---:|---|
+| Healthcare Representative | No | 94 | 7 | 7.45% |  |
+| Healthcare Representative | Yes | 37 | 2 | 5.41% |  |
+| Human Resources | No | 39 | 7 | 17.95% |  |
+| Human Resources | Yes | 13 | 5 | 38.46% | 30명 미만 |
+| Laboratory Technician | No | 197 | 31 | 15.74% |  |
+| Laboratory Technician | Yes | 62 | 31 | 50.00% |  |
+| Manager | No | 75 | 1 | 1.33% |  |
+| Manager | Yes | 27 | 4 | 14.81% | 30명 미만 |
+| Manufacturing Director | No | 106 | 6 | 5.66% |  |
+| Manufacturing Director | Yes | 39 | 4 | 10.26% |  |
+| Research Director | No | 57 | 1 | 1.75% |  |
+| Research Director | Yes | 23 | 1 | 4.35% | 30명 미만 |
+| Research Scientist | No | 195 | 14 | 7.18% |  |
+| Research Scientist | Yes | 97 | 33 | 34.02% |  |
+| Sales Executive | No | 232 | 26 | 11.21% |  |
+| Sales Executive | Yes | 94 | 31 | 32.98% |  |
+| Sales Representative | No | 59 | 17 | 28.81% |  |
+| Sales Representative | Yes | 24 | 16 | 66.67% | 30명 미만 |
+
+- **같은 직무 안에서의 차이:** 9개 직무 중 8개에서 초과근무 집단의 이직률이 더 높았다.
+  - Laboratory Technician: 50.00% 대 15.74%
+  - Research Scientist: 34.02% 대 7.18%
+  - Sales Executive: 32.98% 대 11.21%
+- **예외:** Healthcare Representative는 초과근무 집단(5.41%)이 비초과근무 집단(7.45%)보다 낮았다.
+- **소표본:** 30명 미만인 4개 칸은 비율이 크게 흔들릴 수 있다. 예: Sales Representative·초과근무 24명 중 16명, 66.67%.
+
+#### SQL 분석의 한계
+
+- SQL 집계는 기술통계다. 다른 변수의 영향을 통제하지 않았고 통계적 유의성 검정도 하지 않았다.
+- 교차 분석의 30명 미만 칸은 해석에 주의가 필요하다.
+- 현 직무 근속 구간은 회사 근속 구간의 경계를 빌려 쓴 것이다. 다른 경계를 쓰면 수치가 달라질 수 있다.
+- 데이터는 IBM이 만든 가상 데이터이며 기간 정보가 없어 연간 이직률로 해석할 수 없다.
+
+#### 실무적 시사점
+
+- **반복 집계:** SQL로 같은 집계를 재현할 수 있으므로, 실제 HR 데이터베이스에서도 같은 쿼리 구조로 부서·직무·초과근무별 이직률을 정기적으로 집계할 수 있다.
+- **세부 점검:** 초과근무와 이직률의 연관은 직무 안에서도 대체로 유지되었다. 초과근무 관리(8.2)를 검토할 때 직무별로 나눠 보는 것이 유용하다.
+- **해석 범위:** 이 결과는 연관성이며, 초과근무를 줄이면 이직이 줄어든다는 인과적 결론은 아니다.
+
 ---
 
 ## 5. 인구통계학적 특성에 따른 이직률 분석 (04번 노트북)
@@ -365,47 +487,51 @@ SHAP 값은 모델의 예측 결과에 대한 변수별 기여도를 나타내�
 
 ### 7.2 Global Feature Importance
 
-테스트 데이터의 평균 절대 SHAP 값을 기준으로 상위 변수는 다음과 같이 나타났다.
+모델 평가와 같은 테스트 데이터(06번과 동일한 분할 `random_state=2020158011`, 294건)의 평균 절대 SHAP 값을 기준으로 상위 변수는 다음과 같이 나타났다.
 
 | 순위 | 변수 | Mean Absolute SHAP |
 |---:|---|---:|
-| 1 | OverTime_Yes | 0.04666 |
-| 2 | OverTime_No | 0.04627 |
-| 3 | MonthlyIncome | 0.03278 |
-| 4 | StockOptionLevel | 0.03157 |
-| 5 | JobLevel | 0.03033 |
-| 6 | Age | 0.02705 |
-| 7 | TotalWorkingYears | 0.02064 |
-| 8 | YearsAtCompany | 0.01951 |
-| 9 | EnvironmentSatisfaction | 0.01881 |
-| 10 | YearsWithCurrManager | 0.01530 |
-| 11 | MaritalStatus_Single | 0.01496 |
-| 12 | DailyRate | 0.01349 |
-| 13 | DistanceFromHome | 0.01309 |
-| 14 | NumCompaniesWorked | 0.01228 |
-| 15 | YearsInCurrentRole | 0.01223 |
+| 1 | OverTime_Yes | 0.04719 |
+| 2 | OverTime_No | 0.04688 |
+| 3 | MonthlyIncome | 0.03432 |
+| 4 | StockOptionLevel | 0.03257 |
+| 5 | JobLevel | 0.03084 |
+| 6 | Age | 0.02564 |
+| 7 | TotalWorkingYears | 0.01989 |
+| 8 | YearsAtCompany | 0.01971 |
+| 9 | EnvironmentSatisfaction | 0.01940 |
+| 10 | MaritalStatus_Single | 0.01573 |
+| 11 | YearsWithCurrManager | 0.01568 |
+| 12 | DailyRate | 0.01375 |
+| 13 | NumCompaniesWorked | 0.01321 |
+| 14 | DistanceFromHome | 0.01259 |
+| 15 | JobRole_Sales Executive | 0.01245 |
 
 초과근무 여부와 월 소득, 스톡옵션 수준, 직무 등급, 연령 및 근속 관련 변수가 모델 예측에서 상대적으로 큰 기여도를 보였다.
+
+이전 버전의 SHAP 결과는 07번 노트북이 다른 분할(`random_state=42`)의 테스트 데이터로 계산한 것이었다. 그 294건 중 243건은 모델의 학습 데이터였다. 분할을 맞춰 다시 실행한 결과 1~9위의 순서는 같았고, 10~15위에서 일부 순서가 바뀌었다. `YearsInCurrentRole`은 15위 밖(16위)으로, `JobRole_Sales Executive`는 15위 안으로 들어왔다.
 
 `OverTime_Yes`와 `OverTime_No`는 동일한 원본 변수인 `OverTime`에서 생성된 원-핫 인코딩 변수다. 따라서 두 변수를 서로 독립적인 요인으로 해석하기보다는 하나의 초과근무 변수에 대한 인코딩 결과로 이해해야 한다.
 
 ### 7.3 Dependence Plot 해석
 
+아래 해석은 분할을 맞춰 다시 생성한 Dependence Plot을 기준으로 한다. 이전 그래프와 방향은 같았다.
+
 #### OverTime
 
-초과근무 여부를 나타내는 변수에서 초과근무를 하는 관측치가 이직 예측에 양의 방향으로 기여하는 패턴이 관찰되었다. 이는 EDA에서 초과근무 집단의 이직률이 더 높게 나타난 결과와 같은 방향이다.
+초과근무 여부를 나타내는 변수에서 초과근무를 하는 관측치가 이직 예측에 양의 방향으로 기여하는 패턴이 관찰되었다(`OverTime_Yes = 1`인 관측치는 모두 양의 SHAP 값). 이는 EDA에서 초과근무 집단의 이직률이 더 높게 나타난 결과와 같은 방향이다.
 
 #### MonthlyIncome
 
-월 소득이 낮은 관측치에서 이직 예측에 대한 양의 SHAP 값이 상대적으로 나타났으며, 소득이 높아질수록 기여도가 낮아지는 경향이 관찰되었다.
+월 소득이 낮은 관측치에서 이직 예측에 대한 양의 SHAP 값이 상대적으로 나타났으며, 소득이 높아질수록 기여도가 낮아지는 경향이 관찰되었다. 양의 기여는 소득 하위 구간에 집중되었고, 그 위로는 대부분 음의 값에 머물렀다.
 
 #### StockOptionLevel
 
-스톡옵션 수준이 낮은 관측치에서 이직 예측에 대한 양의 기여도가 나타나는 경향을 확인했다.
+스톡옵션 수준이 낮은 관측치에서 이직 예측에 대한 양의 기여도가 나타나는 경향을 확인했다. 양의 SHAP 값은 가장 낮은 수준(0)에서만 나타났고, 1 이상에서는 음의 값이었다.
 
 #### Age
 
-연령에 따라 SHAP 값이 달라지는 비선형적 패턴이 관찰되었다. 낮은 연령 구간에서 이직 예측에 대한 양의 기여도가 상대적으로 나타났다.
+연령에 따라 SHAP 값이 달라지는 비선형적 패턴이 관찰되었다. 낮은 연령 구간에서 이직 예측에 대한 양의 기여도가 상대적으로 나타났다. 기여도는 연령이 높아질수록 줄어들다가 고연령 구간에서 다시 조금 올라갔지만, 대부분 음의 값이었다.
 
 **해석 시 주의:** 수치형 변수는 StandardScaler를 거쳤으므로 Dependence Plot의 가로축은 원래 단위가 아니라 표준화된 값이다. 예를 들어 `MonthlyIncome` 축을 실제 급여 금액으로 바로 해석해서는 안 된다.
 
@@ -451,7 +577,7 @@ Sales Representative의 이직률은 39.76%로 직무 집단 중 가장 높았�
 
 ### 9.2 통계 분석 보완
 
-04번 노트북은 연령대·성별·결혼 여부별 이직률을 계산하고 비교하는 기술통계 분석이다. 추론통계 검정은 수행하지 않았다. 05번 SQL 분석은 아직 진행하지 않았으므로 SQL 결과도 본 보고서에 포함하지 않았다.
+04번 노트북은 연령대·성별·결혼 여부별 이직률을 계산하고 비교하는 기술통계 분석이다. 추론통계 검정은 수행하지 않았다. 05번 SQL 분석은 4.8에서 pandas 집계를 재현·교차 검증했으며, 이 역시 기술통계 집계다.
 
 ### 9.3 모델 검증 보완
 
@@ -462,13 +588,26 @@ Sales Representative의 이직률은 39.76%로 직무 집단 중 가장 높았�
 
 ### 9.4 SHAP 분석 재현성 점검
 
-**중요한 확인 사항:** `06_machine_learning.ipynb`의 데이터 분할은 `random_state=2020158011`을 사용하지만, `07_shap_analysis.ipynb`에서는 `random_state=42`를 사용하고 있다. 따라서 SHAP 분석용 테스트 데이터는 모델 학습 및 최종 평가에 사용한 테스트 데이터와 일치하지 않는다.
+**확인 결과:** 처음 작성한 `07_shap_analysis.ipynb`는 `random_state=42`로 데이터를 분할해, 모델 학습과 평가에 쓴 `06_machine_learning.ipynb`의 분할(`random_state=2020158011`)과 달랐다. 그 결과 SHAP 분석용 테스트 데이터 294건 중 243건이 모델의 학습 데이터였다.
 
-SHAP 결과를 최종 보고서에 확정적으로 반영하기 전에 두 노트북의 `train_test_split` 설정을 동일하게 맞추고, 모델을 다시 학습·저장한 뒤 SHAP 분석을 재실행하는 것을 권장한다. 보고서의 SHAP 결과는 이 재현성 점검이 끝난 뒤 최종 확정해야 한다.
+**조치:**
+- 07번의 분할 설정만 06번과 같게 바꿨다(`test_size=0.2`, `stratify=y`, `random_state=2020158011`).
+- 노트북을 처음부터 끝까지 다시 실행했다.
+- 모델은 다시 학습하지 않았다. 저장된 모델은 06번에서 이미 이 분할의 학습 데이터로 학습되었기 때문이다.
+- Random Forest와 `StratifiedKFold`의 `random_state=42`는 모델 난수 설정이며 그대로 두었다.
+
+**검증:**
+- 06번과 07번의 분할 코드를 같은 데이터로 실행해 비교했다.
+- 테스트 데이터 294건의 인덱스가 순서까지 같고, 학습 데이터 1,176건도 같다.
+- 학습·테스트 데이터 사이의 중복은 0건이다.
+- 입력 변수 31개는 이름과 순서가 같고, 테스트 데이터 이직률은 15.99%로 같다.
+- 노트북을 한 번 더 실행했을 때 SHAP 중요도 표가 그대로 재현되었다.
+
+7장의 수치와 해석은 이 재실행 결과를 반영한 것이다.
 
 ### 9.5 추가 개선 과제
 
-- 동일한 데이터 분할 기준을 전처리·모델링·SHAP 단계에 일관되게 적용
+- 동일한 데이터 분할 기준을 이후 추가하는 분석 단계에도 일관되게 적용(모델링과 SHAP 단계는 9.4에서 통일)
 - 추론통계 검정 및 효과크기 추가
 - 임계값 조정 및 Precision-Recall Curve 분석
 - 교차검증 기반 모델 성능 비교
@@ -485,15 +624,16 @@ IBM HR Analytics 공개 데이터를 활용해 직원 1,470명의 이직 현황�
 
 SHAP 분석에서는 초과근무, 월 소득, 스톡옵션 수준, 직무 등급, 연령 및 근속 관련 변수가 모델 예측에 중요한 기여를 하는 것으로 나타났다. 이를 바탕으로 입사 초기 정착 지원, 초과근무 관리, 보상 및 경력 개발 검토, 직무별 이직 패턴 점검을 인사 관리 측면의 개선 과제로 제안했다.
 
-다만 04번은 집단별 이직률을 비교하는 기술통계 단계이며, 추론통계 검정은 수행하지 않았다. 05번 SQL 분석도 아직 진행하지 않은 상태다. 또한 모델링과 SHAP 단계의 데이터 분할 기준이 일치하지 않으므로, SHAP 결과를 최종 확정하기 전에 분할 기준을 통일하고 재실행하는 것이 필요하다.
+다만 04번은 집단별 이직률을 비교하는 기술통계 단계이며, 추론통계 검정은 수행하지 않았다. 05번 SQL 분석은 4장의 집계를 SQL로 재현해 결과가 일치함을 확인했다(4.8). 모델링과 SHAP 단계의 데이터 분할 기준은 통일했고, SHAP 결과는 모델 평가와 같은 테스트 데이터로 다시 계산했다(9.4).
 
 ---
 
 ## 부록. 최종 제출 전 점검 목록
 
 - [x] 04번 노트북을 인구통계학적 집단별 이직률 비교(기술통계)로 정확히 표기
-- [x] `06_machine_learning.ipynb`와 `07_shap_analysis.ipynb`의 `random_state` 통일
-- [x] 통일된 분할 기준으로 모델 재학습 및 SHAP 재실행
+- [x] 05번 SQL 분석 진행 후 결과 추가(SQLite, 16개 쿼리, pandas 결과와 일치 확인. 4.8)
+- [x] `06_machine_learning.ipynb`와 `07_shap_analysis.ipynb`의 데이터 분할 `random_state` 통일(2020158011)
+- [x] 통일된 분할 기준으로 SHAP 재실행(모델은 06번에서 이미 같은 분할로 학습되어 재학습하지 않음)
 - [x] 모든 그래프의 제목, 축 이름, 단위 및 데이터 출처 확인
 - [x] EDA 그래프와 보고서의 수치 일치 여부 확인
 - [x] 모델 비교 결과표와 Optuna 최적 파라미터 재확인

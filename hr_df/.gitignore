@@ -1,0 +1,35 @@
+# 가상환경(.venv-notebooks/: Notebook 실행용 별도 환경, notebooks/README.md 참고)
+.venv/
+.venv-notebooks/
+
+# Python, 테스트 캐시
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 환경 변수와 Streamlit 비밀 설정
+.env
+.env.*
+.streamlit/secrets.toml
+
+# 로그
+*.log
+
+# 학습 모델: 라이선스상 성격이 확정되지 않아 공개하지 않는다(로컬 실행용 파일은 유지).
+# 원본·전처리 CSV는 ODbL 1.0 / DbCL 1.0으로 공개하므로 제외하지 않는다(data/README.md).
+/models/best_rf_optuna.pkl
+/PUBLICATION_REVIEW.md
+
+# 내부 검토 문서(공개하지 않음)
+/STAGE_4C1_REPORT.md
+/STAGE_4C2_BROWSER_REPORT.md
+
+# OS, 편집기
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

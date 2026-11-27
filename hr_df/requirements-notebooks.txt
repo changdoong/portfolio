@@ -1,0 +1,17 @@
+# Dependencies for running notebooks 01-07. Python 3.12. Not needed for the dashboard.
+# Includes the dashboard requirements and their pinned versions (requirements-lock.txt constraints).
+# Versions below are from the environment that most recently executed notebooks 05 and 07 in this project.
+# The versions used when notebooks 01-04 and 06 were first executed were not recorded. See notebooks/README.md.
+# Comments stay ASCII: pip reads this file with the system locale encoding on Windows.
+-r requirements.txt
+
+# Plots: notebooks 01, 03, 04, 06, 07
+matplotlib==3.10.1
+seaborn==0.13.2
+
+# Hyperparameter search: notebook 06
+optuna==5.1.0
+
+# Notebook runtime
+jupyterlab==4.3.5
+ipykernel==6.29.5
